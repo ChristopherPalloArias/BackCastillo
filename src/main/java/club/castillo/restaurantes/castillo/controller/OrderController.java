@@ -1,0 +1,45 @@
+package club.castillo.restaurantes.castillo.controller;
+
+import club.castillo.restaurantes.castillo.dto.OrderBeverageDTO;
+import club.castillo.restaurantes.castillo.dto.OrderDTO;
+import club.castillo.restaurantes.castillo.model.OrderStatus;
+import club.castillo.restaurantes.castillo.service.OrderService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/orders")
+@RequiredArgsConstructor
+public class OrderController {
+    private final OrderService orderService;
+
+    @GetMapping("/restaurant/{restaurantId}")
+    public ResponseEntity<List<OrderDTO>> getOrdersByRestaurant(@PathVariable Long restaurantId) {
+        return ResponseEntity.ok(orderService.getOrdersByRestaurant(restaurantId));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<OrderDTO> getOrderById(@PathVariable Long id) {
+        return ResponseEntity.ok(orderService.getOrderById(id));
+    }
+
+    @PostMapping
+    public ResponseEntity<OrderDTO> createOrder(@RequestParam String qrCode, @RequestBody List<OrderBeverageDTO> beverages) {
+        return ResponseEntity.ok(orderService.createOrder(qrCode, beverages));
+    }
+
+    @PutMapping("/{id}/status")
+    public ResponseEntity<OrderDTO> updateOrderStatus(@PathVariable Long id, @RequestParam OrderStatus status) {
+        return ResponseEntity.ok(orderService.updateOrderStatus(id, status));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteOrder(@PathVariable Long id) {
+        orderService.deleteOrder(id);
+        return ResponseEntity.ok().build();
+    }
+} 

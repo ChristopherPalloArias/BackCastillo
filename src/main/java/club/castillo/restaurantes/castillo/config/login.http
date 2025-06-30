@@ -1,0 +1,3 @@
+### Obtener datos del restaurante (requiere token)
+GET http://localhost:8081/restaurants/2
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0QHRlc3QuY29tIiwiaWF0IjoxNzUxMjQ4ODIzLCJleHAiOjE3NTEzMzUyMjN9.JEPJlH0GeD4gyvLOHgq8ZqubwfYNYMUVgPSRe692gR0
