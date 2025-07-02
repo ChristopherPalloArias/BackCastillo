@@ -32,14 +32,20 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         // Público: login, zonas
+                        .requestMatchers(
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/v3/api-docs/**",
+                                "/v3/api-docs.yaml",
+                                "/swagger-resources/**",
+                                "/webjars/**"
+                        ).permitAll()
                         .requestMatchers("/api/auth/**", "/zones/**").permitAll()
 
                         // Público: Solo consultas GET a restaurantes específicos
                         .requestMatchers(HttpMethod.GET, "/restaurants/public/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/restaurants/public").permitAll()
                         .requestMatchers(HttpMethod.GET, "/menu-items/restaurant/**").permitAll()
-
-                        // Privado: Todas las demás operaciones de restaurantes requieren autenticación
-                        // (las anotaciones @PreAuthorize manejarán la autorización específica)
                         .requestMatchers("/restaurants/**").authenticated()
 
                         // Otras rutas privadas
