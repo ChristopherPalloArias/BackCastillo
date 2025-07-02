@@ -2,6 +2,7 @@ package club.castillo.restaurantes.castillo.service;
 
 import club.castillo.restaurantes.castillo.dto.OrderBeverageDTO;
 import club.castillo.restaurantes.castillo.dto.OrderDTO;
+import club.castillo.restaurantes.castillo.dto.ScanRequest;
 import club.castillo.restaurantes.castillo.model.*;
 import club.castillo.restaurantes.castillo.repository.BeverageRepository;
 import club.castillo.restaurantes.castillo.repository.OrderBeverageRepository;
@@ -25,6 +26,7 @@ public class OrderService {
     private final OrderBeverageRepository orderBeverageRepository;
     private final BeverageRepository beverageRepository;
     private final QrCodeRepository qrCodeRepository;
+    private final OrderNotificationService notificationService;
 
     @Transactional(readOnly = true)
     public List<OrderDTO> getOrdersByRestaurant(Long restaurantId) {
@@ -84,19 +86,30 @@ public class OrderService {
         Order order = orderRepository.findByIdAndActiveTrue(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
-        // Verificar permisos
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         User currentUser = (User) authentication.getPrincipal();
 
         if (!currentUser.getRole().getName().equals("OWNER") &&
-            !(currentUser.getRole().getName().equals("RESTAURANT_ADMIN") &&
-              currentUser.getId().equals(order.getRestaurant().getAdmin().getId()))) {
+                !(currentUser.getRole().getName().equals("RESTAURANT_ADMIN") &&
+                        currentUser.getId().equals(order.getRestaurant().getAdmin().getId()))) {
             throw new AccessDeniedException("You don't have permission to update this order's status");
         }
 
         order.setStatus(status);
         order.setUpdatedAt(LocalDateTime.now());
         order = orderRepository.save(order);
+
+        // 🔔 Notificar cliente según estado
+        String message = switch (status) {
+            case CONFIRMED -> "Tu pedido ha sido confirmado.";
+            case PREPARING -> "Tu pedido está siendo preparado.";
+            case READY -> "Tu pedido ya está listo para retirar.";
+            case CANCELLED -> "Tu pedido ha sido cancelado.";
+            case DELIVERED -> "Gracias por usar el sistema.";
+            default -> "Tu pedido ha sido actualizado.";
+        };
+
+        notificationService.notifyClient(orderId, status.name(), message);
 
         return convertToDTO(order);
     }
@@ -137,4 +150,51 @@ public class OrderService {
                         .collect(Collectors.toList()))
                 .build();
     }
+
+    @Transactional
+    public String scanOrder(Long orderId, ScanRequest scanRequest) {
+        Order order = orderRepository.findByIdAndActiveTrue(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+
+        if (!order.getStatus().equals(OrderStatus.READY)) {
+            throw new RuntimeException("El pedido no está listo para ser entregado");
+        }
+
+        String expectedHash = generateSecureHash(orderId);
+        if (!expectedHash.equals(scanRequest.getHash())) {
+            throw new RuntimeException("QR inválido");
+        }
+
+        order.setStatus(OrderStatus.DELIVERED);
+        order.setUpdatedAt(LocalDateTime.now());
+        orderRepository.save(order);
+
+        notificationService.notifyClient(orderId, "DELIVERED", "✅ Pedido entregado. ¡Gracias por usar el sistema!");
+
+        return "Pedido entregado con éxito";
+    }
+
+    @Transactional
+    public String cancelOrder(Long orderId) {
+        Order order = orderRepository.findByIdAndActiveTrue(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+
+        if (!(order.getStatus().equals(OrderStatus.PENDING) || order.getStatus().equals(OrderStatus.CONFIRMED))) {
+            throw new RuntimeException("No se puede cancelar un pedido que ya está en preparación o entregado");
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setUpdatedAt(LocalDateTime.now());
+        orderRepository.save(order);
+
+        notificationService.notifyClient(orderId, "CANCELLED", "Tu pedido ha sido cancelado correctamente.");
+
+        return "Pedido cancelado";
+    }
+
+    private String generateSecureHash(Long orderId) {
+        String input = orderId + "-secret";
+        return org.apache.commons.codec.digest.DigestUtils.sha256Hex(input);
+    }
+
 }

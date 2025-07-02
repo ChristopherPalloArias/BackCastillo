@@ -8,7 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
+import club.castillo.restaurantes.castillo.dto.ScanRequest;
 import java.util.List;
 
 @RestController
@@ -41,5 +41,15 @@ public class OrderController {
     public ResponseEntity<Void> deleteOrder(@PathVariable Long id) {
         orderService.deleteOrder(id);
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{id}/scan")
+    public ResponseEntity<String> scanOrderQr(@PathVariable Long id, @RequestBody ScanRequest request) {
+        return ResponseEntity.ok(orderService.scanOrder(id, request));
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<String> cancelOrder(@PathVariable Long id) {
+        return ResponseEntity.ok(orderService.cancelOrder(id));
     }
 } 
