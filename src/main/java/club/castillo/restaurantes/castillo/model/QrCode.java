@@ -20,9 +20,6 @@ public class QrCode {
     @Column(nullable = false, unique = true)
     private String code;
 
-    @Column(nullable = false)
-    private String tableNumber;
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "restaurant_id", nullable = false)
     private Restaurant restaurant;

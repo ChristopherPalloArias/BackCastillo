@@ -36,7 +36,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         System.out.println("JWT FILTER request to: " + path);
 
         // Permitir pasar sin autenticar para rutas públicas
-        if (path.contains("/auth/") || path.startsWith("/zones")) {
+        if (path.contains("/auth/") || path.startsWith("/zones")){
             filterChain.doFilter(request, response);
             return;
         }

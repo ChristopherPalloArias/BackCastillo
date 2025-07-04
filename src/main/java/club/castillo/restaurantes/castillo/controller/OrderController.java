@@ -1,14 +1,13 @@
 package club.castillo.restaurantes.castillo.controller;
 
-import club.castillo.restaurantes.castillo.dto.OrderBeverageDTO;
-import club.castillo.restaurantes.castillo.dto.OrderDTO;
+import club.castillo.restaurantes.castillo.dto.*;
 import club.castillo.restaurantes.castillo.model.OrderStatus;
 import club.castillo.restaurantes.castillo.service.OrderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import club.castillo.restaurantes.castillo.dto.ScanRequest;
+
 import java.util.List;
 
 @RestController
@@ -28,8 +27,8 @@ public class OrderController {
     }
 
     @PostMapping
-    public ResponseEntity<OrderDTO> createOrder(@RequestParam String qrCode, @RequestBody List<OrderBeverageDTO> beverages) {
-        return ResponseEntity.ok(orderService.createOrder(qrCode, beverages));
+    public ResponseEntity<OrderDTO> createOrder(@RequestParam String qrCode, @RequestBody OrderRequestDTO request) {
+        return ResponseEntity.ok(orderService.createOrder(qrCode, request.getItems(), request.getBeverages()));
     }
 
     @PutMapping("/{id}/status")
@@ -52,4 +51,12 @@ public class OrderController {
     public ResponseEntity<String> cancelOrder(@PathVariable Long id) {
         return ResponseEntity.ok(orderService.cancelOrder(id));
     }
+    @PostMapping("/generate-permanent-qr")
+    public ResponseEntity<String> generatePermanentQr(
+            @RequestParam Long restaurantId) {
+        String code = orderService.generatePermanentQrCode(restaurantId);
+        return ResponseEntity.ok(code);
+    }
+
+
 } 

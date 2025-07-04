@@ -1,13 +1,8 @@
 package club.castillo.restaurantes.castillo.service;
 
-import club.castillo.restaurantes.castillo.dto.OrderBeverageDTO;
-import club.castillo.restaurantes.castillo.dto.OrderDTO;
-import club.castillo.restaurantes.castillo.dto.ScanRequest;
+import club.castillo.restaurantes.castillo.dto.*;
 import club.castillo.restaurantes.castillo.model.*;
-import club.castillo.restaurantes.castillo.repository.BeverageRepository;
-import club.castillo.restaurantes.castillo.repository.OrderBeverageRepository;
-import club.castillo.restaurantes.castillo.repository.OrderRepository;
-import club.castillo.restaurantes.castillo.repository.QrCodeRepository;
+import club.castillo.restaurantes.castillo.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -15,8 +10,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -27,6 +25,10 @@ public class OrderService {
     private final BeverageRepository beverageRepository;
     private final QrCodeRepository qrCodeRepository;
     private final OrderNotificationService notificationService;
+    private final OrderWebSocketService orderWebSocketService;
+    private final UserRepository userRepository;
+    private final MenuItemRepository menuItemRepository;
+    private final OrderItemRepository orderItemRepository;
 
     @Transactional(readOnly = true)
     public List<OrderDTO> getOrdersByRestaurant(Long restaurantId) {
@@ -44,39 +46,133 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderDTO createOrder(String qrCode, List<OrderBeverageDTO> beverages) {
+    public OrderDTO createOrder(String qrCode, List<OrderItemDTO> items, List<OrderBeverageDTO> beverages) {
+        // DEBUG: Verificar datos recibidos
+        System.out.println("=== DEBUG CREATE ORDER ===");
+        System.out.println("QR Code: " + qrCode);
+        System.out.println("Items recibidos: " + (items != null ? items.size() : "null"));
+        System.out.println("Beverages recibidos: " + (beverages != null ? beverages.size() : "null"));
+
+        if (beverages != null) {
+            for (OrderBeverageDTO bev : beverages) {
+                System.out.println("Beverage ID: " + bev.getBeverageId() + ", Quantity: " + bev.getQuantity());
+            }
+        }
+
         QrCode qrCodeEntity = qrCodeRepository.findByCodeAndActiveTrue(qrCode)
                 .orElseThrow(() -> new RuntimeException("QR Code not found or inactive"));
 
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        User currentUser = null;
+        if (authentication != null && authentication.isAuthenticated()) {
+            String email = authentication.getName();
+            currentUser = userRepository.findByEmail(email).orElse(null);
+        }
+
         Order order = Order.builder()
                 .restaurant(qrCodeEntity.getRestaurant())
-                .tableNumber(qrCodeEntity.getTableNumber())
                 .status(OrderStatus.PENDING)
                 .active(true)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .total(BigDecimal.ZERO)
                 .build();
 
-        order = orderRepository.save(order);
+        if (currentUser != null && currentUser.getRole() != null) {
+            order.setCustomer(currentUser);
+            order.setCustomerName(currentUser.getFirstName() + " " + currentUser.getLastName());
+            order.setGuest(false);
+        } else {
+            order.setCustomerName("Invitado");
+            order.setGuest(true);
+        }
 
-        // SOLUCIÓN: Hacer order final para usar en la lambda
+        order = orderRepository.save(order);
         final Order finalOrder = order;
 
-        List<OrderBeverage> orderBeverages = beverages.stream()
-                .map(beverageDTO -> {
-                    Beverage beverage = beverageRepository.findByIdAndActiveTrue(beverageDTO.getBeverageId())
-                            .orElseThrow(() -> new RuntimeException("Beverage not found"));
+        // Calcular total
+        final BigDecimal[] total = {BigDecimal.ZERO};
 
-                    return OrderBeverage.builder()
-                            .order(finalOrder) // <-- aquí el cambio
-                            .beverage(beverage)
-                            .quantity(beverageDTO.getQuantity())
-                            .price(beverage.getPrice())
-                            .active(true)
-                            .build();
-                })
-                .collect(Collectors.toList());
+        // Guardar items
+        if (items != null && !items.isEmpty()) {
+            System.out.println("Procesando " + items.size() + " items de comida...");
+            List<OrderItem> orderItems = items.stream()
+                    .filter(dto -> dto.getMenuItemId() != null)
+                    .map(dto -> menuItemRepository.findByIdAndActiveTrue(dto.getMenuItemId())
+                            .map(menuItem -> {
+                                BigDecimal subtotal = menuItem.getPrice().multiply(BigDecimal.valueOf(dto.getQuantity()));
+                                total[0] = total[0].add(subtotal);
+                                return OrderItem.builder()
+                                        .order(finalOrder)
+                                        .menuItem(menuItem)
+                                        .quantity(dto.getQuantity())
+                                        .unitPrice(menuItem.getPrice())
+                                        .subtotal(subtotal)
+                                        .build();
+                            })
+                            .orElse(null))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
 
-        orderBeverageRepository.saveAll(orderBeverages);
-        order.setBeverages(orderBeverages);
+            orderItemRepository.saveAll(orderItems);
+            order.setItems(orderItems);
+            System.out.println("Items guardados: " + orderItems.size());
+        }
+
+        // Guardar bebidas
+        if (beverages != null && !beverages.isEmpty()) {
+            System.out.println("Procesando " + beverages.size() + " bebidas...");
+            List<OrderBeverage> orderBeverages = beverages.stream()
+                    .filter(dto -> {
+                        System.out.println("Filtrando beverage con ID: " + dto.getBeverageId());
+                        return dto.getBeverageId() != null;
+                    })
+                    .map(dto -> {
+                        System.out.println("Buscando beverage con ID: " + dto.getBeverageId());
+                        return beverageRepository.findByIdAndActiveTrue(dto.getBeverageId())
+                                .map(beverage -> {
+                                    System.out.println("Beverage encontrado: " + beverage.getName() + ", Precio: " + beverage.getPrice());
+                                    BigDecimal subtotal = BigDecimal.valueOf(beverage.getPrice())
+                                            .multiply(BigDecimal.valueOf(dto.getQuantity()));
+                                    total[0] = total[0].add(subtotal);
+                                    return OrderBeverage.builder()
+                                            .order(finalOrder)
+                                            .beverage(beverage)
+                                            .quantity(dto.getQuantity())
+                                            .price(beverage.getPrice())
+                                            .active(true)
+                                            .createdAt(LocalDateTime.now())
+                                            .build();
+                                })
+                                .orElseGet(() -> {
+                                    System.out.println("ERROR: Beverage no encontrado con ID: " + dto.getBeverageId());
+                                    return null;
+                                });
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            System.out.println("OrderBeverages a guardar: " + orderBeverages.size());
+            orderBeverageRepository.saveAll(orderBeverages);
+            order.setBeverages(orderBeverages);
+            System.out.println("Bebidas guardadas: " + orderBeverages.size());
+        } else {
+            System.out.println("No hay bebidas para procesar (beverages es null o vacío)");
+        }
+
+        order.setTotal(total[0]);
+        order = orderRepository.save(order);
+        System.out.println("Total final: " + total[0]);
+        System.out.println("=== FIN DEBUG ===");
+
+        String message = "Nueva orden recibida: " + order.getCustomerName();
+        notificationService.notifyClient(order.getId(), "NEW_ORDER", message);
+        orderWebSocketService.sendOrderStatusUpdate(new OrderStatusMessage(
+                order.getId(),
+                "NEW_ORDER",
+                order.getRestaurant().getId(),
+                message
+        ));
 
         return convertToDTO(order);
     }
@@ -87,11 +183,17 @@ public class OrderService {
                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        User currentUser = (User) authentication.getPrincipal();
+        User currentUser = null;
+        if (authentication != null && authentication.isAuthenticated()) {
+            String email = authentication.getName();
+            currentUser = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        }
 
-        if (!currentUser.getRole().getName().equals("OWNER") &&
-                !(currentUser.getRole().getName().equals("RESTAURANT_ADMIN") &&
-                        currentUser.getId().equals(order.getRestaurant().getAdmin().getId()))) {
+        if (currentUser == null ||
+                (!currentUser.getRole().getName().equals("OWNER") &&
+                        !(currentUser.getRole().getName().equals("RESTAURANT_ADMIN") &&
+                                currentUser.getId().equals(order.getRestaurant().getAdmin().getId())))) {
             throw new AccessDeniedException("You don't have permission to update this order's status");
         }
 
@@ -99,7 +201,6 @@ public class OrderService {
         order.setUpdatedAt(LocalDateTime.now());
         order = orderRepository.save(order);
 
-        // 🔔 Notificar cliente según estado
         String message = switch (status) {
             case CONFIRMED -> "Tu pedido ha sido confirmado.";
             case PREPARING -> "Tu pedido está siendo preparado.";
@@ -110,6 +211,12 @@ public class OrderService {
         };
 
         notificationService.notifyClient(orderId, status.name(), message);
+        orderWebSocketService.sendOrderStatusUpdate(new OrderStatusMessage(
+                order.getId(),
+                status.name(),
+                order.getRestaurant().getId(),
+                message
+        ));
 
         return convertToDTO(order);
     }
@@ -119,14 +226,12 @@ public class OrderService {
         Order order = orderRepository.findByIdAndActiveTrue(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
-        // Verificar permisos
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        User currentUser = (User) authentication.getPrincipal();
-
-        if (!currentUser.getRole().getName().equals("OWNER") &&
-            !(currentUser.getRole().getName().equals("RESTAURANT_ADMIN") &&
-              currentUser.getId().equals(order.getRestaurant().getAdmin().getId()))) {
-            throw new AccessDeniedException("You don't have permission to delete this order");
+        User currentUser = null;
+        if (authentication != null && authentication.isAuthenticated()) {
+            String email = authentication.getName();
+            currentUser = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
         }
 
         order.setActive(false);
@@ -137,19 +242,38 @@ public class OrderService {
     private OrderDTO convertToDTO(Order order) {
         return OrderDTO.builder()
                 .id(order.getId())
+                .customerId(order.getCustomer() != null ? order.getCustomer().getId() : null)
+                .customerName(order.getCustomerName())
                 .restaurantId(order.getRestaurant().getId())
-                .tableNumber(order.getTableNumber())
+                .items(order.getItems() != null ?
+                        order.getItems().stream()
+                                .map(orderItem -> OrderItemDTO.builder()
+                                        .id(orderItem.getId())
+                                        .menuItemId(orderItem.getMenuItem().getId())
+                                        .quantity(orderItem.getQuantity())
+                                        .unitPrice(orderItem.getUnitPrice())
+                                        .subtotal(orderItem.getSubtotal())
+                                        .build())
+                                .collect(Collectors.toList()) :
+                        List.of())
+                .beverages(order.getBeverages() != null ?
+                        order.getBeverages().stream()
+                                .map(orderBeverage -> OrderBeverageDTO.builder()
+                                        .id(orderBeverage.getId())
+                                        .beverageId(orderBeverage.getBeverage().getId())
+                                        .quantity(orderBeverage.getQuantity())
+                                        .price(orderBeverage.getPrice())
+                                        .build())
+                                .collect(Collectors.toList()) :
+                        List.of())
                 .status(order.getStatus())
-                .beverages(order.getBeverages().stream()
-                        .map(orderBeverage -> OrderBeverageDTO.builder()
-                                .id(orderBeverage.getId())
-                                .beverageId(orderBeverage.getBeverage().getId())
-                                .quantity(orderBeverage.getQuantity())
-                                .price(orderBeverage.getPrice())
-                                .build())
-                        .collect(Collectors.toList()))
+                .total(order.getTotal())
+                .isGuest(order.isGuest())
+                .createdAt(order.getCreatedAt())
+                .updatedAt(order.getUpdatedAt())
                 .build();
     }
+
 
     @Transactional
     public String scanOrder(Long orderId, ScanRequest scanRequest) {
@@ -169,7 +293,14 @@ public class OrderService {
         order.setUpdatedAt(LocalDateTime.now());
         orderRepository.save(order);
 
-        notificationService.notifyClient(orderId, "DELIVERED", "✅ Pedido entregado. ¡Gracias por usar el sistema!");
+        String message = "✅ Pedido entregado. ¡Gracias por usar el sistema!";
+        notificationService.notifyClient(orderId, "DELIVERED", message);
+        orderWebSocketService.sendOrderStatusUpdate(new OrderStatusMessage(
+                order.getId(),
+                "DELIVERED",
+                order.getRestaurant().getId(),
+                message
+        ));
 
         return "Pedido entregado con éxito";
     }
@@ -187,7 +318,14 @@ public class OrderService {
         order.setUpdatedAt(LocalDateTime.now());
         orderRepository.save(order);
 
-        notificationService.notifyClient(orderId, "CANCELLED", "Tu pedido ha sido cancelado correctamente.");
+        String message = "Tu pedido ha sido cancelado correctamente.";
+        notificationService.notifyClient(orderId, "CANCELLED", message);
+        orderWebSocketService.sendOrderStatusUpdate(new OrderStatusMessage(
+                order.getId(),
+                "CANCELLED",
+                order.getRestaurant().getId(),
+                message
+        ));
 
         return "Pedido cancelado";
     }
@@ -197,4 +335,26 @@ public class OrderService {
         return org.apache.commons.codec.digest.DigestUtils.sha256Hex(input);
     }
 
+    private String generateUniqueCode() {
+        String code;
+        do {
+            code = java.util.UUID.randomUUID().toString().substring(0, 8);
+        } while (qrCodeRepository.existsByCodeAndActiveTrue(code));
+        return code;
+    }
+
+    @Transactional
+    public String generatePermanentQrCode(Long restaurantId) {
+        return qrCodeRepository.findFirstByRestaurantIdAndActiveTrue(restaurantId)
+                .map(QrCode::getCode)
+                .orElseGet(() -> {
+                    QrCode qrCode = QrCode.builder()
+                            .code(generateUniqueCode())
+                            .restaurant(Restaurant.builder().id(restaurantId).build())
+                            .active(true)
+                            .build();
+                    qrCodeRepository.save(qrCode);
+                    return qrCode.getCode();
+                });
+    }
 }

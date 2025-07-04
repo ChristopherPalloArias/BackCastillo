@@ -31,7 +31,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
-                        // Público: login, zonas
+                        // Rutas públicas
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
@@ -41,20 +41,20 @@ public class SecurityConfig {
                                 "/webjars/**"
                         ).permitAll()
                         .requestMatchers("/api/auth/**", "/zones/**").permitAll()
-
-                        // Público: Solo consultas GET a restaurantes específicos
+                        .requestMatchers("/ws-orders/**").permitAll()
+                        // Público: GET para frontend sin login
+                        .requestMatchers("/beverages/restaurant/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/restaurants/public/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/restaurants/public").permitAll()
                         .requestMatchers(HttpMethod.GET, "/menu-items/restaurant/**").permitAll()
+                        // Privadas desde aquí
                         .requestMatchers("/restaurants/**").authenticated()
-
-                        // Otras rutas privadas
                         .requestMatchers("/api/users/**").authenticated()
                         .requestMatchers("/beverages/**").authenticated()
                         .requestMatchers("/categories/**").authenticated()
                         .requestMatchers("/menu-items/**").authenticated()
 
-                        // Cualquier otra ruta
+                        // Lo demás
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

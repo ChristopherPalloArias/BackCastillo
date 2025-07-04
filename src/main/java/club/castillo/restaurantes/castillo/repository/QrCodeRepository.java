@@ -14,4 +14,5 @@ public interface QrCodeRepository extends JpaRepository<QrCode, Long> {
     List<QrCode> findByRestaurantIdAndActiveTrue(Long restaurantId);
     Optional<QrCode> findByCodeAndActiveTrue(String code);
     boolean existsByCodeAndActiveTrue(String code);
+    Optional<QrCode> findFirstByRestaurantIdAndActiveTrue(Long restaurantId);
 } 

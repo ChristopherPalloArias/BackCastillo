@@ -19,7 +19,6 @@ public class OrderDTO {
     private Long customerId;
     private String customerName;
     private Long restaurantId;
-    private String tableNumber;
     private List<OrderItemDTO> items;
     private List<OrderBeverageDTO> beverages;
     private OrderStatus status;

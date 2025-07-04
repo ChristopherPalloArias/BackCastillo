@@ -33,13 +33,12 @@ public class Order {
     @JoinColumn(name = "restaurant_id", nullable = false)
     private Restaurant restaurant;
 
-    @Column(name = "table_number", nullable = false)
-    private String tableNumber;
-
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default  // Agregar esta anotación
     private List<OrderItem> items = new ArrayList<>();
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default  // Agregar esta anotación
     private List<OrderBeverage> beverages = new ArrayList<>();
 
     @Column(nullable = false)
@@ -76,4 +75,4 @@ public class Order {
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
     }
-} 
+}

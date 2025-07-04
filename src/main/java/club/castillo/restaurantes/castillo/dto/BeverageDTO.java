@@ -33,4 +33,6 @@ public class BeverageDTO {
 
     @Builder.Default
     private boolean available = true;
+    @Builder.Default
+    private String type = "beverage";
 }

@@ -55,7 +55,6 @@ public class QrCodeService {
 
         QrCode qrCode = QrCode.builder()
                 .restaurant(restaurant)
-                .tableNumber(qrCodeDTO.getTableNumber())
                 .active(true)
                 .build();
 
@@ -78,7 +77,6 @@ public class QrCodeService {
             throw new AccessDeniedException("You don't have permission to update this QR code");
         }
 
-        qrCode.setTableNumber(qrCodeDTO.getTableNumber());
         qrCode.setUpdatedAt(LocalDateTime.now());
 
         qrCode = qrCodeRepository.save(qrCode);
@@ -109,7 +107,6 @@ public class QrCodeService {
         return QrCodeDTO.builder()
                 .id(qrCode.getId())
                 .restaurantId(qrCode.getRestaurant().getId())
-                .tableNumber(qrCode.getTableNumber())
                 .build();
     }
 } 

@@ -15,7 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -25,9 +24,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/beverages")
 @RequiredArgsConstructor
 public class BeverageController {
-    private final BeverageService beverageService;
 
-    // NUEVO: Inyecciones para visibilidad por restaurante
+    private final BeverageService beverageService;
     private final RestaurantBeverageRepository restaurantBeverageRepository;
     private final RestaurantRepository restaurantRepository;
     private final BeverageRepository beverageRepository;
@@ -43,7 +41,6 @@ public class BeverageController {
         return ResponseEntity.ok(beverageService.getBeverageById(id));
     }
 
-    @PreAuthorize("hasRole('OWNER')")
     @PostMapping
     public ResponseEntity<BeverageDTO> createBeverage(@Valid @RequestBody BeverageDTO beverageDTO) {
         try {
@@ -61,7 +58,6 @@ public class BeverageController {
         }
     }
 
-    @PreAuthorize("hasRole('OWNER')")
     @PutMapping("/{id}")
     public ResponseEntity<BeverageDTO> updateBeverage(@PathVariable Long id, @Valid @RequestBody BeverageDTO beverageDTO) {
         try {
@@ -73,7 +69,6 @@ public class BeverageController {
         }
     }
 
-    @PreAuthorize("hasRole('OWNER')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteBeverage(@PathVariable Long id) {
         try {
@@ -84,21 +79,18 @@ public class BeverageController {
         }
     }
 
-    // --- ENDPOINTS PARA ADMINISTRACIÓN DE RESTAURANTE ---
-
-    // Listar bebidas (disponibles) para un restaurante, considerando owner y overrides del restaurante
+    // --- ENDPOINT PÚBLICO: listado de bebidas por restaurante ---
     @GetMapping("/restaurant/{restaurantId}")
     public List<BeverageDTO> getBeveragesForRestaurant(@PathVariable Long restaurantId) {
-        // Globales disponibles (OWNER)
         List<Beverage> globalBeverages = beverageRepository.findByActiveTrueAndAvailableTrue();
-        // Visibilidad local
         List<RestaurantBeverage> rels = restaurantBeverageRepository.findByRestaurantId(restaurantId);
+
         Map<Long, Boolean> localState = rels.stream()
                 .collect(Collectors.toMap(
                         rb -> rb.getBeverage().getId(),
                         RestaurantBeverage::isAvailable
                 ));
-        // El available final es global && local (si existe local)
+
         return globalBeverages.stream()
                 .map(b -> {
                     boolean available = localState.getOrDefault(b.getId(), true);
@@ -116,8 +108,7 @@ public class BeverageController {
                 .collect(Collectors.toList());
     }
 
-    // Cambiar disponibilidad de una bebida específica en un restaurante (ocultar/mostrar solo localmente)
-    @PreAuthorize("hasRole('RESTAURANT_ADMIN') or hasRole('OWNER')")
+    // --- Cambiar disponibilidad local de bebida por restaurante ---
     @PutMapping("/restaurant/{restaurantId}/{beverageId}/available")
     public ResponseEntity<Void> updateAvailability(
             @PathVariable Long restaurantId,
@@ -138,6 +129,7 @@ public class BeverageController {
                             .available(true)
                             .build();
                 });
+
         rel.setAvailable(available);
         restaurantBeverageRepository.save(rel);
         return ResponseEntity.ok().build();
