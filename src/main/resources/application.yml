@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/castillo_db
-    username: postgres
-    password: 2000
+    url: jdbc:postgresql://${DB_IP}:${DB_PORT}/${DB_DATABASE}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -17,7 +17,7 @@ spring:
 application:
   security:
     jwt:
-      secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      secret-key: ${SECRET_KEY_JWT}
       expiration: 86400000 # 1 día
 
 server:
@@ -31,5 +31,5 @@ springdoc:
     enabled: true
 
 jwt:
-  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  secret: ${SECRET_KEY_JWT}
   expiration: 86400000 # 24 hours
