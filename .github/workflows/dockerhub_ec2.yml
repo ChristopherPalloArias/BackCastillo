@@ -35,7 +35,7 @@ jobs:
 
       - name: SSH into EC2 and deploy container
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_PUBLIC_DNS }} << 'EOF'
+            ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_PUBLIC_DNS }} << 'EOF'
             # Verificar e instalar Docker si es necesario.
             if ! command -v docker &> /dev/null; then
               sudo yum update -y
@@ -45,7 +45,7 @@ jobs:
             fi
 
             # Download the image
-            sudo docker pull cipallo/castillo-app:latest
+            sudo docker pull christopherpallo2000/castillo-app:latest
 
             # Stop and remove previous container
             sudo docker stop castillo-app || true
@@ -63,5 +63,5 @@ jobs:
             sudo docker run -d --name castillo-app \
               --env-file .env \
               -p 8081:8081 \
-              cipallo/castillo-app:latest
+              christopherpallo2000/castillo-app:latest
           EOF
