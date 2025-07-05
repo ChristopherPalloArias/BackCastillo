@@ -17,12 +17,12 @@ jobs:
       - name: Build Docker Image
         run: |
           echo "Building Docker image..."
-          docker build -t cipallo/castillo-app:latest .
+          docker build -t christopherpallo2000/castillo-app:latest .
 
       - name: Push Docker Image
         run: |
           echo "Pushing Docker image to Docker Hub..."
-          docker push cipallo/castillo-app:latest
+          docker push christopherpallo2000/castillo-app:latest
 
   deploy-to-ec2:
     needs: build-and-push-image
