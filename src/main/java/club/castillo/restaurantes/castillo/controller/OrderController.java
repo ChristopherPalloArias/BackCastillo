@@ -26,9 +26,13 @@ public class OrderController {
         return ResponseEntity.ok(orderService.getOrderById(id));
     }
 
+    // Cambiado: qrCode es opcional (required = false)
     @PostMapping
-    public ResponseEntity<OrderDTO> createOrder(@RequestParam String qrCode, @RequestBody OrderRequestDTO request) {
-        return ResponseEntity.ok(orderService.createOrder(qrCode, request.getItems(), request.getBeverages()));
+    public ResponseEntity<OrderDTO> createOrder(
+            @RequestParam(required = false) String qrCode,
+            @RequestParam(required = false) Long restaurantId,
+            @RequestBody OrderRequestDTO request) {
+        return ResponseEntity.ok(orderService.createOrder(qrCode, restaurantId, request.getItems(), request.getBeverages()));
     }
 
     @PutMapping("/{id}/status")
@@ -51,12 +55,10 @@ public class OrderController {
     public ResponseEntity<String> cancelOrder(@PathVariable Long id) {
         return ResponseEntity.ok(orderService.cancelOrder(id));
     }
+
     @PostMapping("/generate-permanent-qr")
-    public ResponseEntity<String> generatePermanentQr(
-            @RequestParam Long restaurantId) {
+    public ResponseEntity<String> generatePermanentQr(@RequestParam Long restaurantId) {
         String code = orderService.generatePermanentQrCode(restaurantId);
         return ResponseEntity.ok(code);
     }
-
-
-} 
+}

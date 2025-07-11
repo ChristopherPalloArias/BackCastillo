@@ -39,4 +39,11 @@ public class QrCodeController {
         qrCodeService.deleteQrCode(id);
         return ResponseEntity.ok().build();
     }
+    @GetMapping("/restaurant/{restaurantId}")
+    public ResponseEntity<QrCodeDTO> getFirstActiveQrCodeByRestaurant(@PathVariable Long restaurantId) {
+        return qrCodeService.getFirstActiveQrCodeByRestaurant(restaurantId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
 } 

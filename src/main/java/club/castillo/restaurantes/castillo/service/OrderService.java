@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -45,47 +44,80 @@ public class OrderService {
         return convertToDTO(order);
     }
 
+    // VALIDACIÓN CRUZADA: NO permite mezclar ítems de varios restaurantes en el mismo pedido
     @Transactional
-    public OrderDTO createOrder(String qrCode, List<OrderItemDTO> items, List<OrderBeverageDTO> beverages) {
-        // DEBUG: Verificar datos recibidos
-        System.out.println("=== DEBUG CREATE ORDER ===");
-        System.out.println("QR Code: " + qrCode);
-        System.out.println("Items recibidos: " + (items != null ? items.size() : "null"));
-        System.out.println("Beverages recibidos: " + (beverages != null ? beverages.size() : "null"));
-
-        if (beverages != null) {
-            for (OrderBeverageDTO bev : beverages) {
-                System.out.println("Beverage ID: " + bev.getBeverageId() + ", Quantity: " + bev.getQuantity());
-            }
-        }
-
-        QrCode qrCodeEntity = qrCodeRepository.findByCodeAndActiveTrue(qrCode)
-                .orElseThrow(() -> new RuntimeException("QR Code not found or inactive"));
-
+    public OrderDTO createOrder(String qrCode, Long restaurantId, List<OrderItemDTO> items, List<OrderBeverageDTO> beverages) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         User currentUser = null;
+        String roleName = null;
+        boolean isInvited = false;
         if (authentication != null && authentication.isAuthenticated()) {
             String email = authentication.getName();
             currentUser = userRepository.findByEmail(email).orElse(null);
+            if (currentUser != null && currentUser.getRole() != null) {
+                roleName = currentUser.getRole().getName();
+                if ("INVITED".equalsIgnoreCase(roleName)) {
+                    isInvited = true;
+                }
+            }
+        } else {
+            // Si no hay usuario autenticado, es invitado
+            isInvited = true;
         }
 
+        // Invitado requiere QR siempre
+        if (isInvited) {
+            if (qrCode == null || qrCode.isEmpty()) {
+                throw new RuntimeException("Como invitado, es obligatorio escanear el QR del restaurante para hacer un pedido.");
+            }
+        }
+
+        Restaurant restaurant = null;
+
+        if (isInvited) {
+            // 1. Buscar restaurante por QR
+            QrCode qrCodeEntity = qrCodeRepository.findByCodeAndActiveTrue(qrCode)
+                    .orElseThrow(() -> new RuntimeException("QR Code no encontrado o inactivo"));
+            restaurant = qrCodeEntity.getRestaurant();
+
+            // 2. Validar que TODOS los items y bebidas pertenecen al restaurante del QR
+            if (items != null && !items.isEmpty()) {
+                for (OrderItemDTO dto : items) {
+                    if (dto.getMenuItemId() != null) {
+                        MenuItem menuItem = menuItemRepository.findByIdAndActiveTrue(dto.getMenuItemId())
+                                .orElseThrow(() -> new RuntimeException("Ítem del menú no existe o está inactivo"));
+                        if (!menuItem.getRestaurant().getId().equals(restaurant.getId())) {
+                            throw new RuntimeException("El ítem '" + menuItem.getName() + "' no pertenece al restaurante del QR escaneado.");
+                        }
+                    }
+                }
+            }
+            // Bebidas (si tienes la lógica de bebidas por restaurante, valida aquí también)
+            // ... puedes incluir lógica similar si es necesario
+
+        } else {
+            // Usuario registrado: debe venir restaurantId, nunca QR
+            if (restaurantId == null) {
+                throw new RuntimeException("Debes enviar el ID del restaurante para realizar el pedido.");
+            }
+            restaurant = Restaurant.builder().id(restaurantId).build();
+        }
+
+        String customerName = (currentUser != null && currentUser.getFirstName() != null)
+                ? currentUser.getFirstName() + " " + (currentUser.getLastName() != null ? currentUser.getLastName() : "")
+                : "Invitado";
+
         Order order = Order.builder()
-                .restaurant(qrCodeEntity.getRestaurant())
+                .restaurant(restaurant)
                 .status(OrderStatus.PENDING)
                 .active(true)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .total(BigDecimal.ZERO)
+                .customer(currentUser)
+                .customerName(customerName)
+                .isGuest(isInvited)
                 .build();
-
-        if (currentUser != null && currentUser.getRole() != null) {
-            order.setCustomer(currentUser);
-            order.setCustomerName(currentUser.getFirstName() + " " + currentUser.getLastName());
-            order.setGuest(false);
-        } else {
-            order.setCustomerName("Invitado");
-            order.setGuest(true);
-        }
 
         order = orderRepository.save(order);
         final Order finalOrder = order;
@@ -95,7 +127,6 @@ public class OrderService {
 
         // Guardar items
         if (items != null && !items.isEmpty()) {
-            System.out.println("Procesando " + items.size() + " items de comida...");
             List<OrderItem> orderItems = items.stream()
                     .filter(dto -> dto.getMenuItemId() != null)
                     .map(dto -> menuItemRepository.findByIdAndActiveTrue(dto.getMenuItemId())
@@ -116,54 +147,36 @@ public class OrderService {
 
             orderItemRepository.saveAll(orderItems);
             order.setItems(orderItems);
-            System.out.println("Items guardados: " + orderItems.size());
         }
 
         // Guardar bebidas
         if (beverages != null && !beverages.isEmpty()) {
-            System.out.println("Procesando " + beverages.size() + " bebidas...");
             List<OrderBeverage> orderBeverages = beverages.stream()
-                    .filter(dto -> {
-                        System.out.println("Filtrando beverage con ID: " + dto.getBeverageId());
-                        return dto.getBeverageId() != null;
-                    })
-                    .map(dto -> {
-                        System.out.println("Buscando beverage con ID: " + dto.getBeverageId());
-                        return beverageRepository.findByIdAndActiveTrue(dto.getBeverageId())
-                                .map(beverage -> {
-                                    System.out.println("Beverage encontrado: " + beverage.getName() + ", Precio: " + beverage.getPrice());
-                                    BigDecimal subtotal = BigDecimal.valueOf(beverage.getPrice())
-                                            .multiply(BigDecimal.valueOf(dto.getQuantity()));
-                                    total[0] = total[0].add(subtotal);
-                                    return OrderBeverage.builder()
-                                            .order(finalOrder)
-                                            .beverage(beverage)
-                                            .quantity(dto.getQuantity())
-                                            .price(beverage.getPrice())
-                                            .active(true)
-                                            .createdAt(LocalDateTime.now())
-                                            .build();
-                                })
-                                .orElseGet(() -> {
-                                    System.out.println("ERROR: Beverage no encontrado con ID: " + dto.getBeverageId());
-                                    return null;
-                                });
-                    })
+                    .filter(dto -> dto.getBeverageId() != null)
+                    .map(dto -> beverageRepository.findByIdAndActiveTrue(dto.getBeverageId())
+                            .map(beverage -> {
+                                BigDecimal subtotal = BigDecimal.valueOf(beverage.getPrice())
+                                        .multiply(BigDecimal.valueOf(dto.getQuantity()));
+                                total[0] = total[0].add(subtotal);
+                                return OrderBeverage.builder()
+                                        .order(finalOrder)
+                                        .beverage(beverage)
+                                        .quantity(dto.getQuantity())
+                                        .price(beverage.getPrice())
+                                        .active(true)
+                                        .createdAt(LocalDateTime.now())
+                                        .build();
+                            })
+                            .orElse(null))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
 
-            System.out.println("OrderBeverages a guardar: " + orderBeverages.size());
             orderBeverageRepository.saveAll(orderBeverages);
             order.setBeverages(orderBeverages);
-            System.out.println("Bebidas guardadas: " + orderBeverages.size());
-        } else {
-            System.out.println("No hay bebidas para procesar (beverages es null o vacío)");
         }
 
         order.setTotal(total[0]);
         order = orderRepository.save(order);
-        System.out.println("Total final: " + total[0]);
-        System.out.println("=== FIN DEBUG ===");
 
         String message = "Nueva orden recibida: " + order.getCustomerName();
         notificationService.notifyClient(order.getId(), "NEW_ORDER", message);
@@ -250,6 +263,7 @@ public class OrderService {
                                 .map(orderItem -> OrderItemDTO.builder()
                                         .id(orderItem.getId())
                                         .menuItemId(orderItem.getMenuItem().getId())
+                                        .name(orderItem.getMenuItem().getName())
                                         .quantity(orderItem.getQuantity())
                                         .unitPrice(orderItem.getUnitPrice())
                                         .subtotal(orderItem.getSubtotal())
@@ -261,6 +275,7 @@ public class OrderService {
                                 .map(orderBeverage -> OrderBeverageDTO.builder()
                                         .id(orderBeverage.getId())
                                         .beverageId(orderBeverage.getBeverage().getId())
+                                        .name(orderBeverage.getBeverage().getName())
                                         .quantity(orderBeverage.getQuantity())
                                         .price(orderBeverage.getPrice())
                                         .build())
@@ -273,7 +288,6 @@ public class OrderService {
                 .updatedAt(order.getUpdatedAt())
                 .build();
     }
-
 
     @Transactional
     public String scanOrder(Long orderId, ScanRequest scanRequest) {

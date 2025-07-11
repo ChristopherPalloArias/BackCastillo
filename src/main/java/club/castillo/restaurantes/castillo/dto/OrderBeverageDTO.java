@@ -14,4 +14,5 @@ public class OrderBeverageDTO {
     private Long beverageId;
     private Integer quantity;
     private Double price;
+    private String name;
 } 

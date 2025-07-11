@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -106,7 +107,14 @@ public class QrCodeService {
     private QrCodeDTO convertToDTO(QrCode qrCode) {
         return QrCodeDTO.builder()
                 .id(qrCode.getId())
+                .code(qrCode.getCode()) // <- Asegúrate de mapear el code
                 .restaurantId(qrCode.getRestaurant().getId())
                 .build();
     }
+    @Transactional(readOnly = true)
+    public Optional<QrCodeDTO> getFirstActiveQrCodeByRestaurant(Long restaurantId) {
+        return qrCodeRepository.findFirstByRestaurantIdAndActiveTrue(restaurantId)
+                .map(this::convertToDTO);
+    }
+
 } 

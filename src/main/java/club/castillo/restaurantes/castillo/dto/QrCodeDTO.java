@@ -12,5 +12,5 @@ import lombok.NoArgsConstructor;
 public class QrCodeDTO {
     private Long id;
     private Long restaurantId;
-    private String tableNumber;
+    private String code;
 } 
